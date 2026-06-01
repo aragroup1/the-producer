@@ -11,7 +11,9 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
+  Loader2,
 } from 'lucide-react'
+import { useDashboardStats, useRecentBeats, useQueueStatus } from '../lib/hooks'
 
 interface StatCardProps {
   title: string
@@ -20,9 +22,10 @@ interface StatCardProps {
   changeType: 'positive' | 'negative' | 'neutral'
   icon: React.ElementType
   delay: number
+  loading?: boolean
 }
 
-function StatCard({ title, value, change, changeType, icon: Icon, delay }: StatCardProps) {
+function StatCard({ title, value, change, changeType, icon: Icon, delay, loading }: StatCardProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -33,7 +36,9 @@ function StatCard({ title, value, change, changeType, icon: Icon, delay }: StatC
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm text-muted">{title}</p>
-          <h3 className="text-2xl font-bold text-white mt-1">{value}</h3>
+          <h3 className="text-2xl font-bold text-white mt-1">
+            {loading ? <Loader2 className="w-6 h-6 animate-spin text-primary" /> : value}
+          </h3>
         </div>
         <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
           <Icon className="w-5 h-5 text-primary" />
@@ -58,26 +63,11 @@ function StatCard({ title, value, change, changeType, icon: Icon, delay }: StatC
 }
 
 export default function DashboardOverview() {
-  const [stats, setStats] = useState({
-    totalBeats: 0,
-    generatedToday: 0,
-    revenue: 0,
-    avgQuality: 0,
-    queueDepth: 0,
-    successRate: 0,
-  })
+  const { data: stats, isLoading: statsLoading, error: statsError } = useDashboardStats()
+  const { data: beatsData, isLoading: beatsLoading } = useRecentBeats(5)
+  const { data: queue, isLoading: queueLoading } = useQueueStatus()
 
-  useEffect(() => {
-    // TODO: Fetch real stats from API
-    setStats({
-      totalBeats: 1247,
-      generatedToday: 23,
-      revenue: 3847.5,
-      avgQuality: 7.8,
-      queueDepth: 5,
-      successRate: 94,
-    })
-  }, [])
+  const recentBeats = beatsData?.items || []
 
   return (
     <div className="space-y-6">
@@ -85,51 +75,57 @@ export default function DashboardOverview() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <StatCard
           title="Total Beats"
-          value={stats.totalBeats.toLocaleString()}
+          value={stats?.total_beats?.toLocaleString() || '0'}
           change="+12%"
           changeType="positive"
           icon={Music}
           delay={0}
+          loading={statsLoading}
         />
         <StatCard
           title="Generated Today"
-          value={stats.generatedToday.toString()}
+          value={stats?.generated_today?.toString() || '0'}
           change="+5"
           changeType="positive"
           icon={Activity}
           delay={0.1}
+          loading={statsLoading}
         />
         <StatCard
           title="Revenue"
-          value={`£${stats.revenue.toLocaleString()}`}
+          value={`£${(stats?.revenue || 0).toLocaleString()}`}
           change="+8.2%"
           changeType="positive"
           icon={DollarSign}
           delay={0.2}
+          loading={statsLoading}
         />
         <StatCard
           title="Avg Quality Score"
-          value={stats.avgQuality.toString()}
+          value={(stats?.avg_quality || 0).toFixed(1)}
           change="+0.3"
           changeType="positive"
           icon={TrendingUp}
           delay={0.3}
+          loading={statsLoading}
         />
         <StatCard
           title="Queue Depth"
-          value={stats.queueDepth.toString()}
+          value={((queue?.queued || 0) + (queue?.processing || 0)).toString()}
           change="-2"
           changeType="positive"
           icon={Clock}
           delay={0.4}
+          loading={queueLoading}
         />
         <StatCard
           title="Success Rate"
-          value={`${stats.successRate}%`}
+          value={`${stats?.success_rate || 0}%`}
           change="+2%"
           changeType="positive"
           icon={Cpu}
           delay={0.5}
+          loading={statsLoading}
         />
       </div>
 
@@ -143,37 +139,44 @@ export default function DashboardOverview() {
           className="bg-surface border border-border rounded-xl p-6"
         >
           <h3 className="text-lg font-semibold text-white mb-4">Recent Beats</h3>
-          <div className="space-y-3">
-            {[
-              { title: 'Dark Trap Beat #234', genre: 'Trap', bpm: 140, status: 'published', quality: 8.5 },
-              { title: 'Melodic Drill #189', genre: 'Drill', bpm: 145, status: 'approved', quality: 7.9 },
-              { title: 'LoFi Chill #456', genre: 'Lo-Fi', bpm: 82, status: 'qc', quality: 8.2 },
-              { title: 'Afro Swing #321', genre: 'Afrobeats', bpm: 105, status: 'mixing', quality: null },
-            ].map((beat, i) => (
-              <div
-                key={i}
-                className="flex items-center justify-between p-3 bg-background rounded-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <Music className="w-4 h-4 text-primary" />
+          {beatsLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : recentBeats.length === 0 ? (
+            <div className="text-center py-8 text-muted">
+              <Music className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p>No beats generated yet</p>
+              <p className="text-sm mt-1">Generate your first beat to see it here</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {recentBeats.map((beat: any, i: number) => (
+                <div
+                  key={beat.id || i}
+                  className="flex items-center justify-between p-3 bg-background rounded-lg hover:bg-background/80 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <Music className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-white">{beat.title || `Beat #${beat.id?.slice(0, 6)}`}</p>
+                      <p className="text-xs text-muted">
+                        {beat.genre?.name || beat.genre_id} • {beat.bpm} BPM
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-white">{beat.title}</p>
-                    <p className="text-xs text-muted">
-                      {beat.genre} • {beat.bpm} BPM
-                    </p>
+                  <div className="flex items-center gap-3">
+                    {beat.quality_score && (
+                      <span className="text-xs text-success">{beat.quality_score.toFixed(1)}/10</span>
+                    )}
+                    <StatusBadge status={beat.status} />
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  {beat.quality && (
-                    <span className="text-xs text-success">{beat.quality}/10</span>
-                  )}
-                  <StatusBadge status={beat.status} />
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </motion.div>
 
         {/* System Health */}
@@ -185,36 +188,23 @@ export default function DashboardOverview() {
         >
           <h3 className="text-lg font-semibold text-white mb-4">System Health</h3>
           <div className="space-y-4">
-            <HealthItem
-              label="API Gateway"
-              status="healthy"
-              latency="12ms"
-            />
-            <HealthItem
-              label="MIDI Workers"
-              status="healthy"
-              latency="45ms"
-            />
-            <HealthItem
-              label="Sound Engine"
-              status="healthy"
-              latency="120ms"
-            />
-            <HealthItem
-              label="Mix/Master"
-              status="healthy"
-              latency="89ms"
-            />
-            <HealthItem
-              label="Database"
-              status="healthy"
-              latency="3ms"
-            />
-            <HealthItem
-              label="Redis Queue"
-              status="healthy"
-              latency="1ms"
-            />
+            <HealthItem label="API Gateway" status="healthy" latency="12ms" />
+            <HealthItem label="MIDI Workers" status="healthy" latency="45ms" />
+            <HealthItem label="Sound Engine" status="healthy" latency="120ms" />
+            <HealthItem label="Mix/Master" status="healthy" latency="89ms" />
+            <HealthItem label="Database" status="healthy" latency="3ms" />
+            <HealthItem label="Redis Queue" status="healthy" latency="1ms" />
+          </div>
+          
+          {/* Queue Status Mini-Panel */}
+          <div className="mt-6 pt-4 border-t border-border">
+            <h4 className="text-sm font-medium text-white mb-3">Queue Status</h4>
+            <div className="grid grid-cols-4 gap-2">
+              <QueueStat label="Queued" value={queue?.queued || 0} color="text-primary" />
+              <QueueStat label="Processing" value={queue?.processing || 0} color="text-secondary" />
+              <QueueStat label="Completed" value={queue?.completed || 0} color="text-success" />
+              <QueueStat label="Failed" value={queue?.failed || 0} color="text-danger" />
+            </div>
           </div>
         </motion.div>
       </div>
@@ -228,7 +218,9 @@ function StatusBadge({ status }: { status: string }) {
     approved: 'bg-success/10 text-success',
     qc: 'bg-warning/10 text-warning',
     mixing: 'bg-secondary/10 text-secondary',
+    mastering: 'bg-secondary/10 text-secondary',
     rendering: 'bg-primary/10 text-primary',
+    draft: 'bg-muted/10 text-muted',
     failed: 'bg-danger/10 text-danger',
   }
 
@@ -251,6 +243,15 @@ function HealthItem({ label, status, latency }: { label: string; status: string;
         <span className="text-sm text-white">{label}</span>
       </div>
       <span className="text-xs text-muted">{latency}</span>
+    </div>
+  )
+}
+
+function QueueStat({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="text-center p-2 bg-background rounded-lg">
+      <div className={`text-lg font-bold ${color}`}>{value}</div>
+      <div className="text-xs text-muted">{label}</div>
     </div>
   )
 }
