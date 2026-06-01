@@ -49,5 +49,5 @@ ENV PYTHONPATH=/app:/app/services/api-gateway:/app/services/marketing-agent:/app
 
 EXPOSE 8000
 
-# Default: run API gateway (Railway overrides with Procfile)
-CMD ["uvicorn", "services.api-gateway.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default: run API gateway (Railway provides $PORT)
+CMD ["sh", "-c", "uvicorn services.api-gateway.app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
