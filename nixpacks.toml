@@ -7,7 +7,6 @@ cmds = [
     "pip install -r services/marketing-agent/requirements.txt",
     "pip install -r services/sound-engine/requirements.txt",
     "pip install -r services/composition-engine/requirements.txt",
-    "pip install -r services/render-queue/requirements.txt",
     "pip install -r services/mixing-engine/requirements.txt",
     "pip install -r services/mastering-engine/requirements.txt",
     "pip install -r services/export-pipeline/requirements.txt",
@@ -15,6 +14,11 @@ cmds = [
     "pip install -r services/shopify-integration/requirements.txt",
     "pip install -r services/trend-research/requirements.txt",
     "pip install -r services/adaptive-learning/requirements.txt"
+]
+
+[phases.build]
+cmds = [
+    "mkdir -p output/beats output/stems output/previews output/midi output/videos output/thumbnails"
 ]
 
 [start]
