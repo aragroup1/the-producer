@@ -1,0 +1,12 @@
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.vscode
+.git
+output/
+samples/
+test.db
+.env.local
+node_modules/
+.next/

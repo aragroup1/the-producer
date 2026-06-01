@@ -1,0 +1,21 @@
+[phases.setup]
+nixPkgs = ["python311", "gcc", "libpq", "ffmpeg", "libsndfile1"]
+
+[phases.install]
+cmds = [
+    "pip install -r services/api-gateway/requirements.txt",
+    "pip install -r services/marketing-agent/requirements.txt",
+    "pip install -r services/sound-engine/requirements.txt",
+    "pip install -r services/composition-engine/requirements.txt",
+    "pip install -r services/render-queue/requirements.txt",
+    "pip install -r services/mixing-engine/requirements.txt",
+    "pip install -r services/mastering-engine/requirements.txt",
+    "pip install -r services/export-pipeline/requirements.txt",
+    "pip install -r services/quality-scoring/requirements.txt",
+    "pip install -r services/shopify-integration/requirements.txt",
+    "pip install -r services/trend-research/requirements.txt",
+    "pip install -r services/adaptive-learning/requirements.txt"
+]
+
+[start]
+cmd = "cd services/api-gateway && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
