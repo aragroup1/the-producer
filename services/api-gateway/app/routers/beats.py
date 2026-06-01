@@ -13,7 +13,8 @@ import structlog
 from shared.models.beat import Beat, BeatCreate, BeatUpdate, BeatListResponse, BeatStatus
 from shared.db.database import get_db
 from shared.db.models import Beat as BeatModel, Genre, RenderJob
-from shared.utils.security import get_current_active_user, validate_beat_id, BeatGenerationRequest, BatchGenerationRequest
+from shared.utils.security import validate_beat_id, BeatGenerationRequest, BatchGenerationRequest
+from app.routers.auth import get_current_active_user
 from shared.celery_config import celery_app
 
 logger = structlog.get_logger()
