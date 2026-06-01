@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Cache bust - change this comment to force rebuild
+# v2
+
 # Install Python dependencies from all services
 COPY services/api-gateway/requirements.txt ./requirements-gateway.txt
 COPY services/marketing-agent/requirements.txt ./requirements-marketing.txt
