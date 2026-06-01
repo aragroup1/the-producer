@@ -47,7 +47,8 @@ RUN mkdir -p /app/output/beats /app/output/stems /app/output/previews /app/outpu
 # Set Python path to include all services
 ENV PYTHONPATH=/app:/app/services/api-gateway:/app/services/marketing-agent:/app/services/sound-engine:/app/services/composition-engine:/app/services/mixing-engine:/app/services/mastering-engine:/app/services/export-pipeline:/app/services/quality-scoring:/app/services/shopify-integration:/app/services/trend-research:/app/services/adaptive-learning:/app/services/render-queue
 
+# Expose port
 EXPOSE 8000
 
-# Default: run API gateway (Railway provides $PORT)
-CMD ["sh", "-c", "uvicorn services.api-gateway.app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Run API gateway - Railway sets PORT env var
+CMD uvicorn services.api-gateway.app.main:app --host 0.0.0.0 --port ${PORT:-8000}
