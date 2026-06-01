@@ -7,3 +7,4 @@ soundfile==0.12.1
 pyloudnorm==0.1.1
 pydantic==2.5.3
 structlog==24.1.0
+email-validator==2.2.0

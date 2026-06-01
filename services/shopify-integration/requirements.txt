@@ -4,3 +4,4 @@ ShopifyAPI==12.3.0
 requests==2.31.0
 pydantic==2.5.3
 structlog==24.1.0
+email-validator==2.2.0
