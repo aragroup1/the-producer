@@ -1,24 +1,39 @@
 """Celery tasks for mixing engine."""
 
 import os
+import uuid
+import asyncio
 from typing import Dict, Any
 
-from celery import Celery
 import numpy as np
 from scipy import signal
 import structlog
 
+from shared.celery_config import celery_app
+from shared.db.database import AsyncSessionLocal
+from shared.db.models import Beat
 from shared.utils.audio import load_audio, save_audio, measure_loudness
 from app.mix_chains import get_mix_chain
 
 logger = structlog.get_logger()
 
-# Initialize Celery
-celery_app = Celery('mix')
-celery_app.conf.broker_url = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
-celery_app.conf.result_backend = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
-
 SAMPLE_RATE = 44100
+
+
+async def _update_beat_status(beat_id: str, status: str, error: str = None):
+    """Update beat status in the database."""
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import select
+        result = await session.execute(
+            select(Beat).where(Beat.id == uuid.UUID(beat_id))
+        )
+        beat = result.scalar_one_or_none()
+        if beat:
+            beat.status = status
+            await session.commit()
+            logger.info("beat_status_updated", beat_id=beat_id, status=status)
+        else:
+            logger.warning("beat_not_found_for_status_update", beat_id=beat_id)
 
 
 class DigitalMixingEngine:
@@ -324,9 +339,18 @@ mix_engine = DigitalMixingEngine()
 
 
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=30)
-def apply_mixing(self, beat_id: str, audio_path: str, 
-                 genre: str, stems: Dict[str, str] = None) -> Dict[str, Any]:
-    """Apply mixing to a beat."""
+def apply_mixing(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply mixing to a beat.
+    
+    Expects `state` from render_audio containing at least:
+      - beat_id
+      - audio_path
+      - genre
+    """
+    beat_id = state["beat_id"]
+    audio_path = state.get("audio_path")
+    genre = state.get("genre", "trap")
+    
     logger.info("mixing_started", beat_id=beat_id, genre=genre)
     
     try:
@@ -356,13 +380,14 @@ def apply_mixing(self, beat_id: str, audio_path: str,
         
         logger.info("mixing_completed", beat_id=beat_id, output=output_path)
         
-        return {
-            "beat_id": beat_id,
-            "status": "completed",
-            "mixed_path": output_path,
-            "genre": genre
-        }
+        # Update beat status: mixing → mastering
+        asyncio.run(_update_beat_status(beat_id, 'mastering'))
+        
+        # Update state for downstream tasks
+        state["mixed_path"] = output_path
+        return state
     
     except Exception as e:
         logger.error("mixing_failed", beat_id=beat_id, error=str(e))
+        asyncio.run(_update_beat_status(beat_id, 'failed'))
         self.retry(exc=e)

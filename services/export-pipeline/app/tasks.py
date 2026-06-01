@@ -1,14 +1,18 @@
 """Celery tasks for export pipeline."""
 
 import os
+import uuid
+import asyncio
 import subprocess
 from typing import Dict, Any
 from pathlib import Path
 
-from celery import Celery
 import numpy as np
 import structlog
 
+from shared.celery_config import celery_app
+from shared.db.database import AsyncSessionLocal
+from shared.db.models import Beat
 from shared.utils.audio import (
     load_audio, save_audio, create_preview, generate_watermark,
     normalize_audio
@@ -16,10 +20,21 @@ from shared.utils.audio import (
 
 logger = structlog.get_logger()
 
-# Initialize Celery
-celery_app = Celery('export')
-celery_app.conf.broker_url = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
-celery_app.conf.result_backend = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
+
+async def _update_beat_status(beat_id: str, status: str, error: str = None):
+    """Update beat status in the database."""
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import select
+        result = await session.execute(
+            select(Beat).where(Beat.id == uuid.UUID(beat_id))
+        )
+        beat = result.scalar_one_or_none()
+        if beat:
+            beat.status = status
+            await session.commit()
+            logger.info("beat_status_updated", beat_id=beat_id, status=status)
+        else:
+            logger.warning("beat_not_found_for_status_update", beat_id=beat_id)
 
 
 class ExportPipeline:
@@ -219,14 +234,22 @@ pipeline = ExportPipeline()
 
 
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=30)
-def export_beat(self, beat_id: str, audio_path: str, midi_path: str = None,
-                formats: list = None) -> Dict[str, Any]:
-    """Export a beat in all requested formats."""
+def export_beat(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    """Export a beat in all requested formats.
+    
+    Expects `state` from run_quality_control containing at least:
+      - beat_id
+      - mastered_path
+      - midi_path (optional)
+    """
+    beat_id = state["beat_id"]
+    audio_path = state.get("mastered_path")
+    midi_path = state.get("midi_path")
+    formats = state.get("export_formats", ['wav', 'mp3', 'preview'])
+    
     logger.info("export_started", beat_id=beat_id, formats=formats)
     
     try:
-        formats = formats or ['wav', 'mp3', 'preview']
-        
         # Load audio
         audio, sr = load_audio(audio_path)
         
@@ -253,13 +276,16 @@ def export_beat(self, beat_id: str, audio_path: str, midi_path: str = None,
         
         logger.info("export_completed", beat_id=beat_id, exported=list(exported.keys()))
         
-        return {
-            "beat_id": beat_id,
-            "status": "completed",
-            "files": exported,
-            "file_sizes_mb": sizes
-        }
+        # Update beat status: approved → published
+        asyncio.run(_update_beat_status(beat_id, 'published'))
+        
+        # Update state with final export info
+        state["exported_files"] = exported
+        state["file_sizes_mb"] = sizes
+        state["status"] = "published"
+        return state
     
     except Exception as e:
         logger.error("export_failed", beat_id=beat_id, error=str(e))
+        asyncio.run(_update_beat_status(beat_id, 'failed'))
         self.retry(exc=e)

@@ -1,23 +1,38 @@
 """Celery tasks for mastering engine."""
 
 import os
+import uuid
+import asyncio
 from typing import Dict, Any
 
-from celery import Celery
 import numpy as np
 from scipy import signal
 import structlog
 
+from shared.celery_config import celery_app
+from shared.db.database import AsyncSessionLocal
+from shared.db.models import Beat
 from shared.utils.audio import load_audio, save_audio, measure_loudness
 
 logger = structlog.get_logger()
 
-# Initialize Celery
-celery_app = Celery('master')
-celery_app.conf.broker_url = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
-celery_app.conf.result_backend = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
-
 SAMPLE_RATE = 44100
+
+
+async def _update_beat_status(beat_id: str, status: str, error: str = None):
+    """Update beat status in the database."""
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import select
+        result = await session.execute(
+            select(Beat).where(Beat.id == uuid.UUID(beat_id))
+        )
+        beat = result.scalar_one_or_none()
+        if beat:
+            beat.status = status
+            await session.commit()
+            logger.info("beat_status_updated", beat_id=beat_id, status=status)
+        else:
+            logger.warning("beat_not_found_for_status_update", beat_id=beat_id)
 
 
 class MasteringEngine:
@@ -180,9 +195,17 @@ master_engine = MasteringEngine()
 
 
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=30)
-def apply_mastering(self, beat_id: str, audio_path: str,
-                    target: str = 'beatstars') -> Dict[str, Any]:
-    """Apply mastering to a beat."""
+def apply_mastering(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply mastering to a beat.
+    
+    Expects `state` from apply_mixing containing at least:
+      - beat_id
+      - mixed_path
+    """
+    beat_id = state["beat_id"]
+    audio_path = state.get("mixed_path")
+    target = state.get("target", 'beatstars')
+    
     logger.info("mastering_task_started", beat_id=beat_id, target=target)
     
     try:
@@ -205,15 +228,16 @@ def apply_mastering(self, beat_id: str, audio_path: str,
         
         logger.info("mastering_task_completed", beat_id=beat_id, output=output_path)
         
-        return {
-            "beat_id": beat_id,
-            "status": "completed",
-            "mastered_path": output_path,
-            "loudness_lufs": loudness['lufs'],
-            "true_peak_db": loudness['true_peak_db'],
-            "target": target
-        }
+        # Update beat status: mastering → qc
+        asyncio.run(_update_beat_status(beat_id, 'qc'))
+        
+        # Update state for downstream tasks
+        state["mastered_path"] = output_path
+        state["loudness_lufs"] = loudness['lufs']
+        state["true_peak_db"] = loudness['true_peak_db']
+        return state
     
     except Exception as e:
         logger.error("mastering_task_failed", beat_id=beat_id, error=str(e))
+        asyncio.run(_update_beat_status(beat_id, 'failed'))
         self.retry(exc=e)

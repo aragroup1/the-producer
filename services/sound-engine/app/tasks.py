@@ -1,24 +1,39 @@
 """Celery tasks for sound engine — Sample-Based Rendering."""
 
 import os
+import uuid
+import asyncio
 from typing import Dict, Any
 
-from celery import Celery
 import structlog
 
+from shared.celery_config import celery_app
+from shared.db.database import AsyncSessionLocal
+from shared.db.models import Beat
 from app.sound_selector import SoundSelector
 from app.sample_engine import SampleEngine
 
 logger = structlog.get_logger()
 
-# Initialize Celery
-celery_app = Celery('sound')
-celery_app.conf.broker_url = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
-celery_app.conf.result_backend = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
-
 # Initialize components
 sound_selector = SoundSelector()
 sample_engine = SampleEngine()
+
+
+async def _update_beat_status(beat_id: str, status: str, error: str = None):
+    """Update beat status in the database."""
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import select
+        result = await session.execute(
+            select(Beat).where(Beat.id == uuid.UUID(beat_id))
+        )
+        beat = result.scalar_one_or_none()
+        if beat:
+            beat.status = status
+            await session.commit()
+            logger.info("beat_status_updated", beat_id=beat_id, status=status)
+        else:
+            logger.warning("beat_not_found_for_status_update", beat_id=beat_id)
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=30)
@@ -51,14 +66,21 @@ def assign_sounds(self, beat_id: str, composition_data: Dict[str, Any]) -> Dict[
 
 
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=30)
-def render_audio(self, beat_id: str, composition_data: Dict[str, Any],
-                 genre: str = 'trap', bpm: int = 140,
-                 humanize_ms: float = 5.0) -> Dict[str, Any]:
+def render_audio(self, state: Dict[str, Any]) -> Dict[str, Any]:
     """Render composition to audio using sample-based engine.
     
-    Replaces the old FluidSynth/VST rendering with high-quality
-    sample-based rendering that produces professional-sounding beats.
+    Expects `state` from generate_midi containing at least:
+      - beat_id
+      - composition
+      - genre
+      - bpm
     """
+    beat_id = state["beat_id"]
+    composition_data = state.get("composition", {})
+    genre = state.get("genre", "trap")
+    bpm = state.get("bpm", 140)
+    humanize_ms = state.get("humanize_ms", 5.0)
+    
     logger.info("audio_render_started", beat_id=beat_id, genre=genre, bpm=bpm)
     
     try:
@@ -94,17 +116,19 @@ def render_audio(self, beat_id: str, composition_data: Dict[str, Any],
                    output=mix_path,
                    stems=list(stem_paths.keys()))
         
-        return {
-            "beat_id": beat_id,
-            "status": "completed",
-            "audio_path": mix_path,
-            "stem_paths": stem_paths,
-            "sample_rate": sample_engine.sample_rate,
-            "stem_count": len(stems)
-        }
+        # Update beat status: rendering → mixing
+        asyncio.run(_update_beat_status(beat_id, 'mixing'))
+        
+        # Update state for downstream tasks
+        state["audio_path"] = mix_path
+        state["stem_paths"] = stem_paths
+        state["sample_rate"] = sample_engine.sample_rate
+        state["stem_count"] = len(stems)
+        return state
     
     except Exception as e:
         logger.error("audio_render_failed", beat_id=beat_id, error=str(e))
+        asyncio.run(_update_beat_status(beat_id, 'failed'))
         self.retry(exc=e)
 
 

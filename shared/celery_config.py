@@ -44,13 +44,15 @@ celery_app.conf.update(
     task_routes={
         'tasks.generate_midi': {'queue': 'midi'},
         'tasks.assign_sounds': {'queue': 'sound'},
+        'tasks.render_audio': {'queue': 'sound'},
         'tasks.render_vst_audio': {'queue': 'sound'},
         'tasks.apply_mixing': {'queue': 'mix'},
         'tasks.apply_mastering': {'queue': 'master'},
-        'tasks.export_beat': {'queue': 'export'},
         'tasks.run_quality_control': {'queue': 'qc'},
+        'tasks.export_beat': {'queue': 'export'},
         'tasks.upload_beat_to_shopify': {'queue': 'shopify'},
         'tasks.research_trends_task': {'queue': 'trends'},
+        'tasks.mark_beat_failed': {'queue': 'midi'},
     },
     
     # Dead letter queue

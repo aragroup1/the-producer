@@ -1,14 +1,18 @@
 """Celery tasks for quality scoring engine."""
 
 import os
+import uuid
+import asyncio
 from typing import Dict, Any
 
-from celery import Celery
 import numpy as np
 import librosa
 from scipy.spatial.distance import cosine
 import structlog
 
+from shared.celery_config import celery_app
+from shared.db.database import AsyncSessionLocal
+from shared.db.models import Beat
 from shared.utils.audio import (
     load_audio, measure_loudness, analyze_spectral_balance,
     analyze_stereo_width, analyze_transients, detect_clipping
@@ -16,10 +20,21 @@ from shared.utils.audio import (
 
 logger = structlog.get_logger()
 
-# Initialize Celery
-celery_app = Celery('qc')
-celery_app.conf.broker_url = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
-celery_app.conf.result_backend = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
+
+async def _update_beat_status(beat_id: str, status: str, error: str = None):
+    """Update beat status in the database."""
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import select
+        result = await session.execute(
+            select(Beat).where(Beat.id == uuid.UUID(beat_id))
+        )
+        beat = result.scalar_one_or_none()
+        if beat:
+            beat.status = status
+            await session.commit()
+            logger.info("beat_status_updated", beat_id=beat_id, status=status)
+        else:
+            logger.warning("beat_not_found_for_status_update", beat_id=beat_id)
 
 
 class QualityScorer:
@@ -338,9 +353,17 @@ scorer = QualityScorer()
 
 
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=30)
-def run_quality_control(self, beat_id: str, audio_path: str,
-                        expected_duration: float = 180) -> Dict[str, Any]:
-    """Run quality control on a beat."""
+def run_quality_control(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    """Run quality control on a beat.
+    
+    Expects `state` from apply_mastering containing at least:
+      - beat_id
+      - mastered_path
+    """
+    beat_id = state["beat_id"]
+    audio_path = state.get("mastered_path")
+    expected_duration = state.get("expected_duration", 180)
+    
     logger.info("qc_task_started", beat_id=beat_id)
     
     try:
@@ -353,12 +376,19 @@ def run_quality_control(self, beat_id: str, audio_path: str,
             passed=results['passed']
         )
         
-        return {
-            "beat_id": beat_id,
-            "status": "completed",
-            **results
-        }
+        # Update beat status based on QC result: qc → approved or failed
+        if results["passed"]:
+            asyncio.run(_update_beat_status(beat_id, 'approved'))
+        else:
+            asyncio.run(_update_beat_status(beat_id, 'failed'))
+        
+        # Update state for downstream tasks
+        state["qc_results"] = results
+        state["qc_passed"] = results["passed"]
+        state["quality_score"] = results["overall_score"]
+        return state
     
     except Exception as e:
         logger.error("qc_task_failed", beat_id=beat_id, error=str(e))
+        asyncio.run(_update_beat_status(beat_id, 'failed'))
         self.retry(exc=e)

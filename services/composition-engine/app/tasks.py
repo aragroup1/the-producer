@@ -25,6 +25,62 @@ composition_engine = CompositionEngine()
 chord_engine = ChordEngine()
 
 
+async def _update_beat_status(beat_id: str, status: str, error: str = None):
+    """Update beat status in the database."""
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import select
+        result = await session.execute(
+            select(Beat).where(Beat.id == uuid.UUID(beat_id))
+        )
+        beat = result.scalar_one_or_none()
+        if beat:
+            beat.status = status
+            await session.commit()
+            logger.info("beat_status_updated", beat_id=beat_id, status=status)
+        else:
+            logger.warning("beat_not_found_for_status_update", beat_id=beat_id)
+
+
+async def _update_beat_midi(beat_id: str, midi_path: str, composition: dict,
+                            progression: list, bpm: int, key: str, duration_bars: int):
+    """Update beat record with MIDI data."""
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import select
+        result = await session.execute(
+            select(Beat).where(Beat.id == uuid.UUID(beat_id))
+        )
+        beat = result.scalar_one_or_none()
+        if beat:
+            beat.midi_path = midi_path
+            beat.composition_params = {
+                'progression': progression,
+                'tracks': list(composition['tracks'].keys()),
+                'bpm': bpm,
+                'key': key,
+                'duration_bars': duration_bars
+            }
+            beat.status = 'rendering'
+            await session.commit()
+
+
+async def _update_job_status(beat_id: str, job_type: str, status: str, error: str = None):
+    """Update render job status."""
+    async with AsyncSessionLocal() as session:
+        from sqlalchemy import select
+        result = await session.execute(
+            select(RenderJob).where(
+                RenderJob.beat_id == uuid.UUID(beat_id),
+                RenderJob.job_type == job_type
+            )
+        )
+        job = result.scalar_one_or_none()
+        if job:
+            job.status = status
+            if error:
+                job.error_message = error
+            await session.commit()
+
+
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=30)
 def generate_midi(self, beat_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
     """Generate MIDI composition for a beat."""
@@ -120,55 +176,16 @@ def generate_midi(self, beat_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
             "progression": progression,
             "bpm": bpm,
             "key": key,
-            "duration_bars": duration_bars
+            "duration_bars": duration_bars,
+            "genre": genre,
+            "mood": mood
         }
     
     except Exception as e:
         logger.error("midi_generation_failed", beat_id=beat_id, error=str(e))
-        # Update job status to failed
         import asyncio
         asyncio.run(_update_job_status(beat_id, 'midi_generation', 'failed', str(e)))
         self.retry(exc=e)
-
-
-async def _update_beat_midi(beat_id: str, midi_path: str, composition: dict, 
-                            progression: list, bpm: int, key: str, duration_bars: int):
-    """Update beat record with MIDI data."""
-    async with AsyncSessionLocal() as session:
-        from sqlalchemy import select
-        result = await session.execute(
-            select(Beat).where(Beat.id == uuid.UUID(beat_id))
-        )
-        beat = result.scalar_one_or_none()
-        if beat:
-            beat.midi_path = midi_path
-            beat.composition_params = {
-                'progression': progression,
-                'tracks': list(composition['tracks'].keys()),
-                'bpm': bpm,
-                'key': key,
-                'duration_bars': duration_bars
-            }
-            beat.status = 'rendering'
-            await session.commit()
-
-
-async def _update_job_status(beat_id: str, job_type: str, status: str, error: str = None):
-    """Update render job status."""
-    async with AsyncSessionLocal() as session:
-        from sqlalchemy import select
-        result = await session.execute(
-            select(RenderJob).where(
-                RenderJob.beat_id == uuid.UUID(beat_id),
-                RenderJob.job_type == job_type
-            )
-        )
-        job = result.scalar_one_or_none()
-        if job:
-            job.status = status
-            if error:
-                job.error_message = error
-            await session.commit()
 
 
 @celery_app.task
@@ -212,22 +229,49 @@ def generate_beat_workflow(self, beat_id: str, **kwargs):
     logger.info("beat_workflow_started", beat_id=beat_id)
     
     try:
-        # Step 1: Generate MIDI
-        midi_result = generate_midi.delay(beat_id, kwargs)
+        # Build the pipeline using Celery chain.
+        # Each stage receives the state dict returned by the previous task.
+        workflow = chain(
+            generate_midi.s(beat_id, kwargs),
+            # sound engine
+            celery_app.signature('tasks.render_audio'),
+            # mixing engine
+            celery_app.signature('tasks.apply_mixing'),
+            # mastering engine
+            celery_app.signature('tasks.apply_mastering'),
+            # quality control
+            celery_app.signature('tasks.run_quality_control'),
+            # export pipeline
+            celery_app.signature('tasks.export_beat'),
+        )
         
-        # The pipeline continues via Celery callbacks
-        # Each subsequent task is triggered by the previous task's success
-        # This is handled by the task chaining in the individual services
+        # Apply the workflow asynchronously with error handling
+        result = workflow.apply_async(
+            link_error=mark_beat_failed.s(beat_id=beat_id, stage='generate_beat_workflow')
+        )
+        
+        logger.info("beat_workflow_queued", beat_id=beat_id, workflow_task_id=result.id)
         
         return {
             "beat_id": beat_id,
             "status": "workflow_started",
-            "midi_task_id": midi_result.id
+            "workflow_task_id": result.id
         }
     
     except Exception as e:
         logger.error("beat_workflow_failed", beat_id=beat_id, error=str(e))
+        import asyncio
+        asyncio.run(_update_beat_status(beat_id, 'failed'))
         raise self.retry(exc=e)
+
+
+@celery_app.task
+def mark_beat_failed(exc_info: Any, beat_id: str, stage: str = 'unknown'):
+    """Error callback: mark a beat as failed and log the error."""
+    logger.error("beat_pipeline_failed", beat_id=beat_id, stage=stage, error=str(exc_info))
+    import asyncio
+    asyncio.run(_update_beat_status(beat_id, 'failed'))
+    return {"beat_id": beat_id, "status": "failed", "stage": stage}
 
 
 @celery_app.task
