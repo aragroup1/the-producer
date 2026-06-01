@@ -26,20 +26,37 @@ class VideoRenderer:
     
     def __init__(self, output_dir: str = "./output/videos"):
         self.output_dir = output_dir
+        self.ffmpeg_path = 'ffmpeg'
         os.makedirs(output_dir, exist_ok=True)
         
         # Check ffmpeg
         self.ffmpeg_available = self._check_ffmpeg()
-        if not self.ffmpeg_available:
+        if self.ffmpeg_available:
+            logger.info("ffmpeg_found", path=self.ffmpeg_path)
+        else:
             logger.warning("ffmpeg_not_found", message="Video rendering requires ffmpeg")
     
     def _check_ffmpeg(self) -> bool:
         """Check if ffmpeg is available."""
-        try:
-            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
-            return True
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return False
+        # Check common locations
+        ffmpeg_paths = [
+            'ffmpeg',
+            os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', 'tools', 'ffmpeg.exe'),
+            os.path.join(os.path.dirname(__file__), '..', '..', '..', '..', 'tools', 'ffmpeg'),
+            '/usr/bin/ffmpeg',
+            '/usr/local/bin/ffmpeg',
+        ]
+        
+        for path in ffmpeg_paths:
+            try:
+                subprocess.run([path, '-version'], capture_output=True, check=True)
+                self.ffmpeg_path = path
+                return True
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                continue
+        
+        self.ffmpeg_path = 'ffmpeg'
+        return False
     
     def render_video(self, audio_path: str, beat_info: Dict[str, Any],
                      template_name: Optional[str] = None,
@@ -253,7 +270,7 @@ class VideoRenderer:
         frame_pattern = os.path.join(frame_dir, "frame_%06d.png")
         
         cmd = [
-            'ffmpeg', '-y',
+            self.ffmpeg_path, '-y',
             '-framerate', str(fps),
             '-i', frame_pattern,
             '-i', audio_path,
@@ -341,7 +358,7 @@ class VideoRenderer:
         temp_path = tempfile.mktemp(suffix='.wav')
         
         cmd = [
-            'ffmpeg', '-y',
+            self.ffmpeg_path, '-y',
             '-i', audio_path,
             '-ss', str(start),
             '-t', str(duration),
@@ -367,7 +384,7 @@ class VideoRenderer:
         import json
         
         cmd = [
-            'ffprobe', '-v', 'quiet',
+            self.ffmpeg_path.replace('ffmpeg', 'ffprobe'), '-v', 'quiet',
             '-print_format', 'json',
             '-show_format', '-show_streams',
             video_path
