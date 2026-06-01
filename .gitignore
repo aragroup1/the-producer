@@ -33,3 +33,9 @@ test.db
 # OS
 .DS_Store
 Thumbs.db
+tools/ffmpeg.exe
+tools/ffprobe.exe
+output/
+*.mp4
+*.mp3
+downloads/
