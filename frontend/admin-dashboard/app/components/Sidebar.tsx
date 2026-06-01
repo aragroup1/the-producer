@@ -3,15 +3,14 @@
 import {
   LayoutDashboard,
   Music,
-  ListOrdered,
   BarChart3,
   Settings,
   Sparkles,
   Megaphone,
-  Upload,
   Radio,
   TrendingUp,
-  Shield,
+  Zap,
+  DollarSign,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 
@@ -21,15 +20,13 @@ interface SidebarProps {
 }
 
 const navItems = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { id: 'beats', label: 'Beat Browser', icon: Music },
-  { id: 'queue', label: 'Render Queue', icon: ListOrdered },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'overview', label: 'Command Center', icon: LayoutDashboard },
+  { id: 'beats', label: 'Beat Library', icon: Music },
   { id: 'marketing', label: 'Marketing', icon: Megaphone },
-  { id: 'uploads', label: 'Upload Queue', icon: Upload },
-  { id: 'channels', label: 'Channels', icon: Radio },
+  { id: 'revenue', label: 'Revenue', icon: DollarSign },
   { id: 'trends', label: 'Trends', icon: TrendingUp },
-  { id: 'rules', label: 'Rules', icon: Shield },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'channels', label: 'Channels', icon: Radio },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
@@ -43,8 +40,8 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
             <Sparkles className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h1 className="font-bold text-lg text-white">AI Producer</h1>
-            <p className="text-xs text-muted">Music Production System</p>
+            <h1 className="font-bold text-lg text-white">The Producer</h1>
+            <p className="text-xs text-muted">AI Music Production</p>
           </div>
         </div>
       </div>
@@ -79,14 +76,18 @@ export default function Sidebar({ activeTab, onTabChange }: SidebarProps) {
         })}
       </nav>
 
-      {/* Status */}
-      <div className="p-4 border-t border-border">
+      {/* Quick Actions */}
+      <div className="p-4 border-t border-border space-y-2">
+        <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 text-primary text-sm font-medium hover:bg-primary/20 transition-colors">
+          <Zap className="w-4 h-4" />
+          Generate Beats
+        </button>
         <div className="flex items-center gap-2 text-xs text-muted">
           <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
           System Online
         </div>
-        <div className="mt-2 text-xs text-muted">
-          v1.0.0 — Local Mode
+        <div className="text-xs text-muted">
+          v2.0.0 — Full Launch
         </div>
       </div>
     </aside>

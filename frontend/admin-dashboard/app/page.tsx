@@ -3,15 +3,13 @@
 import { useState } from 'react'
 import Sidebar from './components/Sidebar'
 import Header from './components/Header'
-import DashboardOverview from './components/DashboardOverview'
+import CommandCenter from './components/CommandCenter'
 import BeatBrowser from './components/BeatBrowser'
-import RenderQueue from './components/RenderQueue'
-import AnalyticsPanel from './components/AnalyticsPanel'
 import MarketingDashboard from './components/MarketingDashboard'
-import UploadQueue from './components/UploadQueue'
-import ChannelAnalytics from './components/ChannelAnalytics'
+import RevenuePanel from './components/RevenuePanel'
 import TrendMonitor from './components/TrendMonitor'
-import RuleManager from './components/RuleManager'
+import AnalyticsPanel from './components/AnalyticsPanel'
+import ChannelAnalytics from './components/ChannelAnalytics'
 import SettingsPanel from './components/SettingsPanel'
 
 export default function Home() {
@@ -20,27 +18,23 @@ export default function Home() {
   const renderContent = () => {
     switch (activeTab) {
       case 'overview':
-        return <DashboardOverview />
+        return <CommandCenter />
       case 'beats':
         return <BeatBrowser />
-      case 'queue':
-        return <RenderQueue />
-      case 'analytics':
-        return <AnalyticsPanel />
       case 'marketing':
         return <MarketingDashboard />
-      case 'uploads':
-        return <UploadQueue />
-      case 'channels':
-        return <ChannelAnalytics />
+      case 'revenue':
+        return <RevenuePanel />
       case 'trends':
         return <TrendMonitor />
-      case 'rules':
-        return <RuleManager />
+      case 'analytics':
+        return <AnalyticsPanel />
+      case 'channels':
+        return <ChannelAnalytics />
       case 'settings':
         return <SettingsPanel />
       default:
-        return <DashboardOverview />
+        return <CommandCenter />
     }
   }
 

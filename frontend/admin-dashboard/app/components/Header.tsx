@@ -7,15 +7,13 @@ interface HeaderProps {
 }
 
 const tabTitles: Record<string, string> = {
-  overview: 'Dashboard Overview',
-  beats: 'Beat Browser',
-  queue: 'Render Queue',
+  overview: 'Command Center',
+  beats: 'Beat Library',
   analytics: 'Analytics & Insights',
-  marketing: 'Marketing Analytics',
-  uploads: 'Upload Queue',
+  marketing: 'Marketing Dashboard',
+  revenue: 'Revenue & Sales',
   channels: 'Channel Analytics',
   trends: 'Trend Monitor',
-  rules: 'Automation Rules',
   settings: 'System Settings',
 }
 
@@ -51,7 +49,7 @@ export default function Header({ activeTab }: HeaderProps) {
 
         {/* User Avatar */}
         <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-medium text-sm">
-          AP
+          TP
         </div>
       </div>
     </header>
