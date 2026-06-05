@@ -10,8 +10,8 @@ RUN apt-get update && apt-get install -y \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Cache bust - change this comment to force rebuild
-# v2
+# Cache bust - change this value to force full rebuild
+ARG CACHEBUST=3
 
 # Install Python dependencies from all services
 COPY services/api-gateway/requirements.txt ./requirements-gateway.txt
@@ -26,8 +26,10 @@ COPY services/shopify-integration/requirements.txt ./requirements-shopify.txt
 COPY services/trend-research/requirements.txt ./requirements-trends.txt
 COPY services/adaptive-learning/requirements.txt ./requirements-learning.txt
 
-# Combine and install all dependencies
-RUN pip install --no-cache-dir -r requirements-gateway.txt && \
+# Combine and install all dependencies - cache bust v3
+RUN echo "Cache bust: $CACHEBUST" && \
+    pip install --no-cache-dir --force-reinstall email-validator==2.2.0 && \
+    pip install --no-cache-dir -r requirements-gateway.txt && \
     pip install --no-cache-dir -r requirements-marketing.txt && \
     pip install --no-cache-dir -r requirements-sound.txt && \
     pip install --no-cache-dir -r requirements-composition.txt && \
