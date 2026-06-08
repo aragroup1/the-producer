@@ -12,3 +12,18 @@ sleepApplication = false
 
 [deploy.env]
 PYTHONPATH = "/app:/app/services/api-gateway:/app/services/marketing-agent:/app/services/sound-engine:/app/services/composition-engine:/app/services/mixing-engine:/app/services/mastering-engine:/app/services/export-pipeline:/app/services/quality-scoring:/app/services/shopify-integration:/app/services/trend-research:/app/services/adaptive-learning:/app/services/render-queue"
+
+# Worker service configuration
+# This will be used when deploying with RAILWAY_SERVICE_NAME=the-producer-worker
+[worker.build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.worker"
+
+[worker.deploy]
+numReplicas = 1
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+sleepApplication = false
+
+[worker.deploy.env]
+PYTHONPATH = "/app:/app/services/api-gateway:/app/services/marketing-agent:/app/services/sound-engine:/app/services/composition-engine:/app/services/mixing-engine:/app/services/mastering-engine:/app/services/export-pipeline:/app/services/quality-scoring:/app/services/shopify-integration:/app/services/trend-research:/app/services/adaptive-learning:/app/services/render-queue"
