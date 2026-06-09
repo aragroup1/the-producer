@@ -18,6 +18,13 @@ from scipy import signal
 
 logger = structlog.get_logger()
 
+# Try to import effects engine
+try:
+    from effects_engine import EffectsEngine
+    EFFECTS_AVAILABLE = True
+except ImportError:
+    EFFECTS_AVAILABLE = False
+
 SAMPLE_RATE = 44100
 
 
@@ -124,7 +131,8 @@ class SampleEngine:
     }
     
     def __init__(self, sample_base_path: Optional[str] = None, 
-                 sample_rate: int = SAMPLE_RATE):
+                 sample_rate: int = SAMPLE_RATE,
+                 use_effects: bool = True):
         self.sample_rate = sample_rate
         self.sample_base = sample_base_path or os.getenv(
             'SAMPLE_PATH', 
@@ -138,7 +146,13 @@ class SampleEngine:
         # Track which categories are loaded
         self.loaded_categories: set = set()
         
-        logger.info("sample_engine_initialized", base_path=self.sample_base)
+        # Effects engine
+        self.use_effects = use_effects and EFFECTS_AVAILABLE
+        self.effects = EffectsEngine(sample_rate) if self.use_effects else None
+        
+        logger.info("sample_engine_initialized", 
+                   base_path=self.sample_base,
+                   effects_enabled=self.use_effects)
     
     def load_category(self, category: str, genre: str) -> SampleMap:
         """Load all samples for a category/genre."""
@@ -652,12 +666,16 @@ class SampleEngine:
         return stems
     
     def mix_stems(self, stems: Dict[str, np.ndarray], 
-                  gains: Optional[Dict[str, float]] = None) -> np.ndarray:
-        """Mix stems into a single stereo track.
+                  gains: Optional[Dict[str, float]] = None,
+                  apply_effects: bool = True,
+                  genre: str = 'trap') -> np.ndarray:
+        """Mix stems into a single stereo track with optional effects processing.
         
         Args:
             stems: Dict of stem_name → audio_array
             gains: Optional gain adjustments in dB
+            apply_effects: Whether to apply stem effects and mastering
+            genre: Genre for effects processing
         
         Returns:
             Mixed stereo audio
@@ -665,8 +683,13 @@ class SampleEngine:
         if not stems:
             return np.zeros((2, 0))
         
+        # Apply stem effects if enabled
+        processed_stems = stems
+        if apply_effects and self.effects:
+            processed_stems = self.effects.process_stems(stems)
+        
         # Find max length
-        max_len = max(s.shape[1] for s in stems.values())
+        max_len = max(s.shape[1] for s in processed_stems.values())
         mix = np.zeros((2, max_len))
         
         default_gains = {
@@ -677,7 +700,7 @@ class SampleEngine:
         }
         gains = gains or default_gains
         
-        for name, stem in stems.items():
+        for name, stem in processed_stems.items():
             gain_db = gains.get(name, 0)
             gain_linear = 10 ** (gain_db / 20)
             
@@ -688,10 +711,14 @@ class SampleEngine:
             
             mix += stem * gain_linear
         
-        # Prevent clipping
-        peak = np.max(np.abs(mix))
-        if peak > 0.95:
-            mix *= 0.95 / peak
+        # Apply mastering if enabled
+        if apply_effects and self.effects:
+            mix = self.effects.master_mix(mix, genre=genre)
+        else:
+            # Basic clip prevention
+            peak = np.max(np.abs(mix))
+            if peak > 0.95:
+                mix *= 0.95 / peak
         
         return mix
     
