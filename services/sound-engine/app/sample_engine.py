@@ -116,6 +116,11 @@ class SampleEngine:
         'bass': ADSR(attack_ms=10, decay_ms=150, sustain_level=0.8, release_ms=200),
         'pluck': ADSR(attack_ms=5, decay_ms=80, sustain_level=0.0, release_ms=100),
         'guitar': ADSR(attack_ms=10, decay_ms=200, sustain_level=0.4, release_ms=300),
+        'violin': ADSR(attack_ms=100, decay_ms=200, sustain_level=0.8, release_ms=400),
+        'strings': ADSR(attack_ms=150, decay_ms=300, sustain_level=0.7, release_ms=500),
+        'brass': ADSR(attack_ms=30, decay_ms=150, sustain_level=0.7, release_ms=250),
+        'flute': ADSR(attack_ms=50, decay_ms=100, sustain_level=0.6, release_ms=200),
+        'vocal': ADSR(attack_ms=20, decay_ms=100, sustain_level=0.8, release_ms=150),
     }
     
     def __init__(self, sample_base_path: Optional[str] = None, 
@@ -147,7 +152,9 @@ class SampleEngine:
             'hihat': 'hihats', 'hihat_closed': 'hihats', 'hihat_open': 'hihats',
             '808': '808s', 'clap': 'claps', 'perc': 'percs', 'cymbals': 'cymbals',
             'synth_lead': 'synth_leads', 'synth_pad': 'synth_pads',
-            'piano': 'pianos', 'bass': 'bass', 'pluck': 'plucks', 'guitar': 'guitars'
+            'piano': 'pianos', 'bass': 'bass', 'pluck': 'plucks', 'guitar': 'guitars',
+            'violin': 'violins', 'strings': 'strings', 'viola': 'violas', 'cello': 'cellos',
+            'brass': 'brass', 'flute': 'flutes', 'sax': 'saxes', 'vocal': 'vocals',
         }
         dir_name = dir_name_map.get(category, category)
         
@@ -155,7 +162,8 @@ class SampleEngine:
             'kick', 'snare', 'hihat', 'hihat_closed', 'hihat_open', '808', 
             'clap', 'perc', 'cymbals'
         ] else 'melodic' if category in [
-            'synth_lead', 'synth_pad', 'piano', 'bass', 'pluck', 'guitar'
+            'synth_lead', 'synth_pad', 'piano', 'bass', 'pluck', 'guitar',
+            'violin', 'strings', 'viola', 'cello', 'brass', 'flute', 'sax', 'vocal'
         ] else 'fx'
         
         sample_dir = os.path.join(self.sample_base, parent_dir, dir_name, genre)
@@ -352,6 +360,20 @@ class SampleEngine:
         
         return audio, start_sample
     
+    # Per-drum gain compensation — samples vary wildly in loudness
+    # These are multiplicative: applied AFTER velocity scaling
+    DRUM_GAIN_COMPENSATION = {
+        'kick': 8.0,       # Kicks need massive boost (raw samples ~0.05 peak)
+        'snare': 6.0,      # Snares also very quiet
+        'hihat': 4.0,      # Hihats need less but still significant
+        'hihat_closed': 4.0,
+        'hihat_open': 3.5,
+        'clap': 5.0,       # Claps need strong boost
+        '808': 3.0,        # 808s are quiet but sustained
+        'perc': 4.0,
+        'cymbals': 3.0,
+    }
+    
     def render_drum_hit(self, drum_name: str, genre: str, 
                         velocity: int = 100,
                         start_time: float = 0.0,
@@ -390,12 +412,19 @@ class SampleEngine:
             start_time += jitter
         
         adsr = self.DEFAULT_ADSR.get(category, ADSR())
-        return self.render_note(sample, 60, velocity, start_time, 
+        audio, start_sample = self.render_note(sample, 60, velocity, start_time, 
                                 sample.duration, adsr)
+        
+        # Apply category-specific gain compensation
+        gain = self.DRUM_GAIN_COMPENSATION.get(drum_name, 1.0)
+        audio *= gain
+        
+        return audio, start_sample
     
     def render_drum_pattern(self, pattern: Dict[str, List[Tuple[float, int]]],
                             genre: str, bars: int = 4,
-                            humanize_ms: float = 5.0) -> np.ndarray:
+                            humanize_ms: float = 5.0,
+                            bpm: int = 140) -> np.ndarray:
         """Render a full drum pattern.
         
         Args:
@@ -403,11 +432,15 @@ class SampleEngine:
             genre: Genre for sample selection
             bars: Number of bars
             humanize_ms: Timing jitter in milliseconds
+            bpm: Tempo in BPM
         
         Returns:
             Stereo audio array
         """
-        total_samples = int(bars * 4 * 60 / 140 * self.sample_rate)  # Default 140 BPM
+        # Calculate total samples based on actual BPM
+        seconds_per_beat = 60.0 / bpm
+        total_duration = bars * 4 * seconds_per_beat
+        total_samples = int(total_duration * self.sample_rate)
         output = np.zeros((2, total_samples))
         
         for drum_name, hits in pattern.items():
@@ -579,6 +612,42 @@ class SampleEngine:
                 tracks['pads'], 'synth_pad', genre, humanize_ms
             )
         
+        # Render guitar (if present)
+        if 'guitar' in tracks:
+            stems['guitar'] = self.render_melodic_track(
+                tracks['guitar'], 'guitar', genre, humanize_ms
+            )
+        
+        # Render piano (if present)
+        if 'piano' in tracks:
+            stems['piano'] = self.render_melodic_track(
+                tracks['piano'], 'piano', genre, humanize_ms
+            )
+        
+        # Render violin/strings (if present)
+        if 'violin' in tracks:
+            stems['violin'] = self.render_melodic_track(
+                tracks['violin'], 'violin', genre, humanize_ms
+            )
+        
+        # Render brass (if present)
+        if 'brass' in tracks:
+            stems['brass'] = self.render_melodic_track(
+                tracks['brass'], 'brass', genre, humanize_ms
+            )
+        
+        # Render flute (if present)
+        if 'flute' in tracks:
+            stems['flute'] = self.render_melodic_track(
+                tracks['flute'], 'flute', genre, humanize_ms
+            )
+        
+        # Render vocals/vocal chops (if present)
+        if 'vocal' in tracks:
+            stems['vocal'] = self.render_melodic_track(
+                tracks['vocal'], 'vocal', genre, humanize_ms
+            )
+        
         logger.info("beat_rendered", stems=list(stems.keys()))
         return stems
     
@@ -601,8 +670,10 @@ class SampleEngine:
         mix = np.zeros((2, max_len))
         
         default_gains = {
-            'drums': 0, 'bass': 0, 'melody': -3, 
-            'counter_melody': -6, 'pads': -9
+            'drums': 0, 'bass': -2, 'melody': -3, 
+            'counter_melody': -6, 'pads': -9,
+            'guitar': -5, 'piano': -4, 'violin': -4,
+            'brass': -3, 'flute': -5, 'vocal': -4
         }
         gains = gains or default_gains
         
